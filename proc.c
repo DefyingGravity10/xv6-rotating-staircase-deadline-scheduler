@@ -372,6 +372,7 @@ scheduler(void)
       p->inQueue = 0;
 
       //For TESTING ONLY. Exclude when not needed
+      // Run test in xv6 to see the partial queue
       /*cprintf("Chosen proc: %d\n", p->pid);
       cprintf("Queue last index: %d\n", ptable.s1.queueIndex);
       for (i=0; i<=ptable.s1.queueIndex; i++) {
