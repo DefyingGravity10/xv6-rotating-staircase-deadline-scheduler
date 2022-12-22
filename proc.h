@@ -49,6 +49,13 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int inQueue;                 // Is a flag that tells whether the proc is in a queue or not
+};
+
+struct set {
+  int queueIndex;
+  struct proc *queue[NPROC];   //Usual format (at least what I think) should be 
+                              // struct proc *queue[RSDL_LEVELS][NPROC]
 };
 
 // Process memory is laid out contiguously, low addresses first:

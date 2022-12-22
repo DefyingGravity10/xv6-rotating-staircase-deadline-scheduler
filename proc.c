@@ -10,6 +10,7 @@
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
+  struct set s1; //The active set
 } ptable;
 
 static struct proc *initproc;
@@ -24,6 +25,7 @@ void
 pinit(void)
 {
   initlock(&ptable.lock, "ptable");
+  ptable.s1.queueIndex = -1;  //Index being -1 implies that there is nothing within the queue
 }
 
 // Must be called with interrupts disabled
@@ -148,6 +150,11 @@ userinit(void)
   // because the assignment might not be atomic.
   acquire(&ptable.lock);
 
+  // Add init into the queue
+  ptable.s1.queueIndex++;
+  ptable.s1.queue[ptable.s1.queueIndex] = p;
+  p->inQueue = 1;
+
   p->state = RUNNABLE;
 
   release(&ptable.lock);
@@ -213,6 +220,11 @@ fork(void)
   pid = np->pid;
 
   acquire(&ptable.lock);
+
+  //Add newly made processes into the queue
+  ptable.s1.queueIndex++;
+  ptable.s1.queue[ptable.s1.queueIndex] = np;
+  np->inQueue = 1;
 
   np->state = RUNNABLE;
 
@@ -300,6 +312,13 @@ wait(void)
       }
     }
 
+    // Add the sleeping processes into the queue
+    if (curproc->inQueue != 1) {
+      ptable.s1.queueIndex++;
+      ptable.s1.queue[ptable.s1.queueIndex] = curproc;
+      curproc->inQueue = 1;
+    }
+
     // No point waiting if we don't have any children.
     if(!havekids || curproc->killed){
       release(&ptable.lock);
@@ -332,6 +351,49 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+    // There should be one more outer for loop but we omit it for now
+
+    // Loop through all the items within the queue
+    int i;
+    for(i=0; i<=ptable.s1.queueIndex; i++) {
+      p = ptable.s1.queue[i];
+      if(p->state != RUNNABLE) {
+        continue;
+      }
+      // Switch to chosen process.  It is the process's job
+      // to release ptable.lock and then reacquire it
+      // before jumping back to us.
+      
+      //Update queue
+      for (int j=i; j<ptable.s1.queueIndex; j++) {
+        ptable.s1.queue[j] = ptable.s1.queue[j+1];
+      }
+      ptable.s1.queueIndex--;
+      p->inQueue = 0;
+
+      //For TESTING ONLY. Exclude when not needed
+      /*cprintf("Chosen proc: %d\n", p->pid);
+      cprintf("Queue last index: %d\n", ptable.s1.queueIndex);
+      for (i=0; i<=ptable.s1.queueIndex; i++) {
+        cprintf("%d ", ptable.s1.queue[i]->pid);
+      }
+      cprintf("end\n\n"); */
+
+      c->proc = p;
+      switchuvm(p);
+      p->state = RUNNING;
+
+      swtch(&(c->scheduler), p->context);
+      switchkvm();     
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;     
+      i = 0;  //Make i into 0 so that we search from the front of the queue  
+    } 
+    release(&ptable.lock);
+
+    /*acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
@@ -350,7 +412,7 @@ scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
-    release(&ptable.lock);
+    release(&ptable.lock); */
 
   }
 }
@@ -386,6 +448,14 @@ void
 yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
+  
+  // Enqueue yielded process
+  if (myproc()->inQueue != 1) {
+    ptable.s1.queueIndex++;
+    ptable.s1.queue[ptable.s1.queueIndex] = myproc();
+    myproc()->inQueue = 1;
+  }
+
   myproc()->state = RUNNABLE;
   sched();
   release(&ptable.lock);
@@ -460,8 +530,17 @@ wakeup1(void *chan)
   struct proc *p;
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == SLEEPING && p->chan == chan)
+    if(p->state == SLEEPING && p->chan == chan) {
+      // Enqueue process
+      if (p->inQueue != 1) {
+        ptable.s1.queueIndex++;
+        ptable.s1.queue[ptable.s1.queueIndex] = p;
+        p->inQueue = 1;
+      }
+
       p->state = RUNNABLE;
+    }
+      
 }
 
 // Wake up all processes sleeping on chan.
@@ -486,8 +565,16 @@ kill(int pid)
     if(p->pid == pid){
       p->killed = 1;
       // Wake process from sleep if necessary.
-      if(p->state == SLEEPING)
+      if(p->state == SLEEPING) {
+        // Add process into queue
+        if (p->inQueue != 1) {
+          ptable.s1.queueIndex++;
+          ptable.s1.queue[ptable.s1.queueIndex] = p; 
+          p->inQueue = 1;         
+        }
         p->state = RUNNABLE;
+      }
+        
       release(&ptable.lock);
       return 0;
     }
