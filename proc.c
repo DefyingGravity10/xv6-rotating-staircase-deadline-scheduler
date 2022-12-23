@@ -363,26 +363,26 @@ scheduler(void)
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
-      
+    
+      c->proc = p;
+      switchuvm(p);
+      p->state = RUNNING;
+
+      //For TESTING ONLY. Exclude when not needed
+      // Run test in xv6 to see the queue
+      /*cprintf("Chosen proc: %d\n", p->pid);
+      cprintf("Queue last index: %d\n", ptable.s1.queueIndex);
+      for (int k=0; k<=ptable.s1.queueIndex; k++) {
+        cprintf("%d(%d) ", ptable.s1.queue[k]->pid, ptable.s1.queue[k]->state);
+      }
+      cprintf("end\n\n"); */
+
       //Update queue
       for (int j=i; j<ptable.s1.queueIndex; j++) {
         ptable.s1.queue[j] = ptable.s1.queue[j+1];
       }
       ptable.s1.queueIndex--;
       p->inQueue = 0;
-
-      //For TESTING ONLY. Exclude when not needed
-      // Run test in xv6 to see the partial queue
-      /*cprintf("Chosen proc: %d\n", p->pid);
-      cprintf("Queue last index: %d\n", ptable.s1.queueIndex);
-      for (i=0; i<=ptable.s1.queueIndex; i++) {
-        cprintf("%d ", ptable.s1.queue[i]->pid);
-      }
-      cprintf("end\n\n"); */
-
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
 
       swtch(&(c->scheduler), p->context);
       switchkvm();     
@@ -506,6 +506,13 @@ sleep(void *chan, struct spinlock *lk)
     acquire(&ptable.lock);  //DOC: sleeplock1
     release(lk);
   }
+
+  if (p->inQueue != 1) {
+    ptable.s1.queueIndex++;
+    ptable.s1.queue[ptable.s1.queueIndex] = p;
+    p->inQueue = 1;
+  }
+  
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
