@@ -262,7 +262,15 @@ exit(void)
   acquire(&ptable.lock);
 
   // Parent might be sleeping in wait().
-  wakeup1(curproc->parent);
+  int hasChildren = 0;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if (p != curproc && p->parent == curproc->parent && p->state != ZOMBIE) {
+      hasChildren = 1;
+    }
+  }
+  if (hasChildren == 0) {
+    wakeup1(curproc->parent);
+  }
 
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
