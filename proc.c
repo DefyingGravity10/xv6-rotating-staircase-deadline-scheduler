@@ -367,13 +367,14 @@ scheduler(void)
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
+      p->ticks_left = RSDL_PROC_QUANTUM;
 
       //For TESTING ONLY. Exclude when not needed
       // Run test in xv6 to see the queue
       /*cprintf("Chosen proc: %d\n", p->pid);
       cprintf("Queue last index: %d\n", ptable.s1.queueIndex);
       for (int k=0; k<=ptable.s1.queueIndex; k++) {
-        cprintf("%d(%d) ", ptable.s1.queue[k]->pid, ptable.s1.queue[k]->state);
+        cprintf("[%d]%s(%d) ", k, ptable.s1.queue[k]->name, ptable.s1.queue[k]->state);
       }
       cprintf("end\n\n"); */
 
@@ -516,7 +517,7 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
-
+  
   sched();
 
   // Tidy up.

@@ -50,6 +50,7 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int inQueue;                 // Is a flag that tells whether the proc is in a queue or not
+  int ticks_left;
 };
 
 struct set {
