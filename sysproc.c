@@ -102,3 +102,13 @@ int sys_shutdown(void)
   shutdown();
   return 0;
 }
+
+int sys_schedlog(void) {
+  int n;
+
+  if(argint(0, &n) < 0)
+    return -1;
+    
+  schedlog(n);
+  return 0;
+}

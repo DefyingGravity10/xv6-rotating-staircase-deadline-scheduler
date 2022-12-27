@@ -156,7 +156,7 @@ userinit(void)
   p->inQueue = 1;
 
   p->state = RUNNABLE;
-
+  p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
   release(&ptable.lock);
 }
 
@@ -227,7 +227,7 @@ fork(void)
   np->inQueue = 1;
 
   np->state = RUNNABLE;
-
+  np->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
   release(&ptable.lock);
 
   return pid;
@@ -261,6 +261,8 @@ exit(void)
 
   acquire(&ptable.lock);
 
+  wakeup1(curproc->parent);
+  /*
   // Parent might be sleeping in wait().
   int hasChildren = 0;
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
@@ -271,7 +273,7 @@ exit(void)
   if (hasChildren == 0) {
     wakeup1(curproc->parent);
   }
-
+*/
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == curproc){
@@ -325,6 +327,7 @@ wait(void)
       ptable.s1.queueIndex++;
       ptable.s1.queue[ptable.s1.queueIndex] = curproc;
       curproc->inQueue = 1;
+      curproc->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
     }
 
     // No point waiting if we don't have any children.
@@ -336,6 +339,14 @@ wait(void)
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(curproc, &ptable.lock);  //DOC: wait-sleep
   }
+}
+
+int schedlog_active = 0;
+int schedlog_lasttick = 0;
+
+void schedlog(int n) {
+  schedlog_active = 1;
+  schedlog_lasttick = ticks + n;
 }
 
 //PAGEBREAK: 42
@@ -375,7 +386,7 @@ scheduler(void)
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
-      p->ticks_left = RSDL_PROC_QUANTUM;
+      //p->ticks_left = RSDL_PROC_QUANTUM;
 
       //For TESTING ONLY. Exclude when not needed
       // Run test in xv6 to see the queue
@@ -385,6 +396,22 @@ scheduler(void)
         cprintf("[%d]%s(%d) ", k, ptable.s1.queue[k]->name, ptable.s1.queue[k]->state);
       }
       cprintf("end\n\n"); */
+      if (schedlog_active) {
+        if (ticks > schedlog_lasttick) {
+          schedlog_active = 0;
+        } else {
+          
+          struct proc *pp;
+
+          cprintf("%d|active|0(0)", ticks);
+          for (int k=0; k<=ptable.s1.queueIndex; k++) {
+            pp = ptable.s1.queue[k];
+            cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
+          }
+
+          cprintf("\n");
+        }
+      }
 
       //Update queue
       for (int j=i; j<ptable.s1.queueIndex; j++) {
@@ -392,6 +419,8 @@ scheduler(void)
       }
       ptable.s1.queueIndex--;
       p->inQueue = 0;
+
+      
 
       swtch(&(c->scheduler), p->context);
       switchkvm();     
@@ -464,6 +493,8 @@ yield(void)
     ptable.s1.queueIndex++;
     ptable.s1.queue[ptable.s1.queueIndex] = myproc();
     myproc()->inQueue = 1;
+    myproc()->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
+
   }
 
   myproc()->state = RUNNABLE;
@@ -520,6 +551,7 @@ sleep(void *chan, struct spinlock *lk)
     ptable.s1.queueIndex++;
     ptable.s1.queue[ptable.s1.queueIndex] = p;
     p->inQueue = 1;
+    p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
   }
   
   // Go to sleep.
@@ -553,6 +585,7 @@ wakeup1(void *chan)
         ptable.s1.queueIndex++;
         ptable.s1.queue[ptable.s1.queueIndex] = p;
         p->inQueue = 1;
+        p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
       }
 
       p->state = RUNNABLE;
@@ -587,7 +620,8 @@ kill(int pid)
         if (p->inQueue != 1) {
           ptable.s1.queueIndex++;
           ptable.s1.queue[ptable.s1.queueIndex] = p; 
-          p->inQueue = 1;         
+          p->inQueue = 1;   
+          p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued      
         }
         p->state = RUNNABLE;
       }

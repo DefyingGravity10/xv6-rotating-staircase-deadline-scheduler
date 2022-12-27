@@ -7,6 +7,6 @@ int main() {
   for (unsigned int i = 0; i < 4e9; i++) {
     dummy += i;
   }
-
+  
   exit();
 }
