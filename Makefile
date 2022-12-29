@@ -192,6 +192,12 @@ UPROGS=\
         _shutdown\
 	_test\
 	_loop\
+	_test2\
+	_test3\
+	_test4\
+	_short\
+	_long\
+	_patay\
 
 
 fs.img: mkfs README $(UPROGS)
