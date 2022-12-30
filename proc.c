@@ -262,18 +262,7 @@ exit(void)
   acquire(&ptable.lock);
 
   wakeup1(curproc->parent);
-  /*
-  // Parent might be sleeping in wait().
-  int hasChildren = 0;
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if (p != curproc && p->parent == curproc->parent && p->state != ZOMBIE) {
-      hasChildren = 1;
-    }
-  }
-  if (hasChildren == 0) {
-    wakeup1(curproc->parent);
-  }
-*/
+
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == curproc){
@@ -321,14 +310,6 @@ wait(void)
         return pid;
       }
     }
-
-    // Add the sleeping processes into the queue
-    /*if (curproc->inQueue != 1) {
-      ptable.s1.queueIndex++;
-      ptable.s1.queue[ptable.s1.queueIndex] = curproc;
-      curproc->inQueue = 1;
-      curproc->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
-    } */
 
     // No point waiting if we don't have any children.
     if(!havekids || curproc->killed){
@@ -386,16 +367,7 @@ scheduler(void)
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
-      //p->ticks_left = RSDL_PROC_QUANTUM;
 
-      //For TESTING ONLY. Exclude when not needed
-      // Run test in xv6 to see the queue
-      /*cprintf("Chosen proc: %d\n", p->pid);
-      cprintf("Queue last index: %d\n", ptable.s1.queueIndex);
-      for (int k=0; k<=ptable.s1.queueIndex; k++) {
-        cprintf("[%d]%s(%d) ", k, ptable.s1.queue[k]->name, ptable.s1.queue[k]->state);
-      }
-      cprintf("end\n\n"); */
       if (schedlog_active) {
         if (ticks > schedlog_lasttick) {
           schedlog_active = 0;
@@ -420,15 +392,13 @@ scheduler(void)
       ptable.s1.queueIndex--;
       p->inQueue = 0;
 
-      
-
       swtch(&(c->scheduler), p->context);
       switchkvm();     
 
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;     
-      i = 0;  //Make i into 0 so that we search from the front of the queue  
+      i = -1;  //Make i into -1 so that we search from the front of the queue  
     } 
     release(&ptable.lock);
 
