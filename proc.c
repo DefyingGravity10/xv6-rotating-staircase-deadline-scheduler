@@ -325,14 +325,6 @@ wait(void)
       }
     }
 
-    // Add the sleeping processes into the queue
-    if (curproc->inQueue != 1) {
-      ptable.s[activeSet].queueIndex++;
-      ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = curproc;
-      curproc->inQueue = 1;
-      curproc->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
-    } 
-
     // No point waiting if we don't have any children.
     if(!havekids || curproc->killed){
       release(&ptable.lock);
