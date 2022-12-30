@@ -59,6 +59,11 @@ struct set {
                               // struct proc *queue[RSDL_LEVELS][NPROC]
 };
 
+struct level {
+  int activeSet;
+  struct set s[2];
+};
+
 // Process memory is laid out contiguously, low addresses first:
 //   text
 //   original data and bss

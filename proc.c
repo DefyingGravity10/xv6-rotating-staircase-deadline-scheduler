@@ -7,12 +7,13 @@
 #include "proc.h"
 #include "spinlock.h"
 
-int activeSet = 0;
+int levelOrder[RSDL_LEVELS];
+int activeLevel = 0;
 
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
-  struct set s[2]; 
+  struct level l[RSDL_LEVELS]; 
 } ptable;
 
 static struct proc *initproc;
@@ -27,8 +28,27 @@ void
 pinit(void)
 {
   initlock(&ptable.lock, "ptable");
-  ptable.s[0].queueIndex = -1;  //Index being -1 implies that there is nothing within the queue
-  ptable.s[1].queueIndex = -1;
+  // Initialize active and expired sets of all levels
+
+  for (int i = 0; i < RSDL_LEVELS; i++)
+  {
+    ptable.l[i].activeSet = 0;
+    ptable.l[i].s[0].queueIndex = -1; // Index being -1 implies that there is nothing within the queue
+    ptable.l[i].s[1].queueIndex = -1;
+  }
+
+  int index = 0;
+  for (int j = RSDL_STARTING_LEVEL; j < RSDL_LEVELS; j++)
+  {
+    levelOrder[index] = j;
+
+    index = index + 1;
+  }
+  for (int k = 0; k < RSDL_STARTING_LEVEL; k++)
+  {
+    levelOrder[index] = k;
+    index = index + 1;
+  }
 }
 
 // Must be called with interrupts disabled
@@ -153,9 +173,10 @@ userinit(void)
   // because the assignment might not be atomic.
   acquire(&ptable.lock);
 
-  // Add init into the 1st queue
-  ptable.s[0].queueIndex++;
-  ptable.s[0].queue[ptable.s[0].queueIndex] = p;
+  // Add init into the active queue of starting level
+  int active = ptable.l[RSDL_STARTING_LEVEL].activeSet;
+  ptable.l[RSDL_STARTING_LEVEL].s[active].queueIndex++;
+  ptable.l[RSDL_STARTING_LEVEL].s[active].queue[ptable.l[RSDL_STARTING_LEVEL].s[active].queueIndex] = p;
   p->inQueue = 1;
   
   p->state = RUNNABLE;
@@ -224,14 +245,34 @@ fork(void)
 
   acquire(&ptable.lock);
 
-  //Add newly made processes into the queue
-  ptable.s[activeSet].queueIndex++;
-  ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = np;
-  np->inQueue = 1;
+  // Add newly made processes into active queue of active level
+  int isEnqueued = 0;
+  for (int i = 0; i < RSDL_LEVELS; i++)
+  {
+    int curLevel = levelOrder[i];
+    int active = ptable.l[curLevel].activeSet;
 
-  np->state = RUNNABLE;
-  np->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
+    // change 4 to 63 (1 less than max number of procs in queue)
+    if (ptable.l[curLevel].s[active].queueIndex >= 4)
+    {
+      // level is full; enqueue in next level
+      continue;
+    }
+
+    ptable.l[curLevel].s[active].queueIndex++;
+    ptable.l[curLevel].s[active].queue[ptable.l[curLevel].s[active].queueIndex] = np;
+    isEnqueued = 1;
+    np->inQueue = 1;
+
+    np->state = RUNNABLE;
+    np->ticks_left = RSDL_PROC_QUANTUM; // quantum replenished when enqueued
+    break;
+  }
   release(&ptable.lock);
+  if (isEnqueued == 0)
+  {
+    panic("all levels are full!"); //not sure if this is needed??
+  }
 
   return pid;
 }
@@ -366,165 +407,125 @@ scheduler(void)
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
     // There should be one more outer for loop but we omit it for now
-
-    //cprintf("current process is: %s\n", myproc()->name);
-    //cprintf("activeSet is %d\n",activeSet);
-    // Assume there are no runnable processes
-    int noRunnableProc = 1;
-
-    // Loop through all the items within the queue
-    
-    int i;
-    for(i=0; i<=ptable.s[activeSet].queueIndex; i++) {
-      p = ptable.s[activeSet].queue[i];
-      if(p->state != RUNNABLE) {
-        continue;
-      }
-      // There is a runnable proc
-      noRunnableProc = 0;
-
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-    
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      //p->ticks_left = RSDL_PROC_QUANTUM;
-
-      //For TESTING ONLY. Exclude when not needed
-      // Run test in xv6 to see the queue
-      /*cprintf("Chosen proc: %d\n", p->pid);
-      cprintf("Queue last index: %d\n", ptable.s1.queueIndex);
-      for (int k=0; k<=ptable.s1.queueIndex; k++) {
-        cprintf("[%d]%s(%d) ", k, ptable.s1.queue[k]->name, ptable.s1.queue[k]->state);
-      }
-      cprintf("end\n\n"); */
-      if (schedlog_active) {
-        if (ticks > schedlog_lasttick) {
-          schedlog_active = 0;
-        } else {
-          
-          struct proc *pp;
-
-          if(activeSet == 0){
-            cprintf("%d|active|0(0)", ticks);
-            for (int k=0; k<=ptable.s[0].queueIndex; k++) {
-              pp = ptable.s[0].queue[k];
-              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
-            }
-            cprintf("\n");
-            cprintf("%d|expired|0(0)", ticks);
-            for (int k=0; k<=ptable.s[1].queueIndex; k++) {
-              pp = ptable.s[1].queue[k];
-              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
-            }
-          }
-          else{
-            cprintf("%d|active|0(0)", ticks);
-            for (int k=0; k<=ptable.s[1].queueIndex; k++) {
-              pp = ptable.s[1].queue[k];
-              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
-            }
-            cprintf("\n");
-            cprintf("%d|expired|0(0)", ticks);
-            for (int k=0; k<=ptable.s[0].queueIndex; k++) {
-              pp = ptable.s[0].queue[k];
-              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
-            }
-          }
-          
-          cprintf("\n");
-        }
-      }
-      
-      //Update active queue
-      for (int j=i; j<ptable.s[activeSet].queueIndex; j++) {
-        ptable.s[activeSet].queue[j] = ptable.s[activeSet].queue[j+1];
-      }
-      ptable.s[activeSet].queueIndex--;
-      p->inQueue = 0;
-      
-      
-      swtch(&(c->scheduler), p->context);
-      switchkvm();     
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;     
-      i = -1;  //Make i into 0 so that we search from the front of the queue  
-    } 
-    
-    //swapping sets
-    if(noRunnableProc == 1)
+    int swap = 1;
+    // Loop through all the items within the active queue of active level
+    int l;
+    for (l = 0; l < RSDL_LEVELS; l++)
     {
-      if(activeSet == 0)
+      int curLevel = levelOrder[l];
+      int i;
+      int active = ptable.l[curLevel].activeSet;
+      int noRunnableProcInLevel = 1;
+      for (i = 0; i <= ptable.l[curLevel].s[active].queueIndex; i++)
       {
-        struct proc *pp;
-        
-        // replenish quanta
-        for (int j=0; j<=ptable.s[1].queueIndex; j++) {
-          pp = ptable.s[1].queue[j];
-          pp->ticks_left = RSDL_PROC_QUANTUM;
+        p = ptable.l[curLevel].s[active].queue[i];
+
+        if (p->state != RUNNABLE)
+        {
+          continue;
         }
 
-        // transfer sleeping procs
-        for (int k=0; k<=ptable.s[0].queueIndex; k++) {
-          pp = ptable.s[0].queue[k];
+        // There is a runnable proc
+        noRunnableProcInLevel = 0;
+        activeLevel = curLevel;
 
-          ptable.s[1].queueIndex++;
-          ptable.s[1].queue[ptable.s[1].queueIndex] = pp;
-    
+        // Switch to chosen process.  It is the process's job
+        // to release ptable.lock and then reacquire it
+        // before jumping back to us.
+
+        c->proc = p;
+        switchuvm(p);
+
+        p->state = RUNNING;
+
+        // prints sched log
+        if (schedlog_active)
+        {
+          if (ticks > schedlog_lasttick)
+          {
+            schedlog_active = 0;
+          }
+          else
+          {
+
+            struct proc *pp;
+            for (int x = 0; x < RSDL_LEVELS; x++)
+            {
+              int a = ptable.l[x].activeSet;
+              cprintf("%d|active|%d(0)", ticks, x);
+              for (int k = 0; k <= ptable.l[x].s[a].queueIndex; k++)
+              {
+                pp = ptable.l[x].s[a].queue[k];
+                cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
+              }
+              cprintf("\n");
+            }
+
+            for (int x = 0; x < RSDL_LEVELS; x++)
+            {
+              int e = !ptable.l[x].activeSet;
+              cprintf("%d|expired|%d(0)", ticks, x);
+              for (int k = 0; k <= ptable.l[x].s[e].queueIndex; k++)
+              {
+                pp = ptable.l[x].s[e].queue[k];
+                cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
+              }
+              cprintf("\n");
+            }
+          }
         }
-        ptable.s[0].queueIndex = -1; //empty queue
-        activeSet = 1;
+
+        // Update active queue
+        for (int j = i; j < ptable.l[curLevel].s[active].queueIndex; j++)
+        {
+          ptable.l[curLevel].s[active].queue[j] = ptable.l[curLevel].s[active].queue[j + 1];
+        }
+        ptable.l[curLevel].s[active].queueIndex--;
+        p->inQueue = 0;
+
+        swtch(&(c->scheduler), p->context);
+        switchkvm();
+        // cprintf("process done running\n");
+        //  Process is done running for now.
+        //  It should have changed its p->state before coming back.
+        c->proc = 0;
+        i = -1; // Make i into 0 so that we search from the front of the queue
+        break;  //?
       }
-      else{
-        struct proc *pp;
 
-        // replenish quanta
-        for (int j=0; j<=ptable.s[0].queueIndex; j++) {
-          pp = ptable.s[0].queue[j];
-          pp->ticks_left = RSDL_PROC_QUANTUM;
-        }
-
-        // transfer sleeping procs
-        for (int k=0; k<=ptable.s[1].queueIndex; k++) {
-          pp = ptable.s[1].queue[k];
-
-          ptable.s[0].queueIndex++;
-          ptable.s[0].queue[ptable.s[0].queueIndex] = pp;
-        }
-        
-        ptable.s[1].queueIndex = -1; //empty queue
-        activeSet = 0;
-      }
-    }
-
-    release(&ptable.lock);
-    
-
-    /*acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
+      if (noRunnableProcInLevel == 1)
+      {
         continue;
+      }
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+      swap = 0;
+      l = -1;
     }
-    release(&ptable.lock); */
 
+    if (swap == 1)
+    {
+      // swapping sets
+
+      struct proc *pp;
+      for (l = 0; l < RSDL_LEVELS; l++)
+      {
+        int curLevel = levelOrder[l];
+        int active = ptable.l[curLevel].activeSet;
+        // transfer sleeping procs
+        for (int k = 0; k <= ptable.l[curLevel].s[active].queueIndex; k++)
+        {
+          pp = ptable.l[curLevel].s[active].queue[k];
+
+          ptable.l[curLevel].s[!active].queueIndex++;
+          ptable.l[curLevel].s[!active].queue[ptable.l[curLevel].s[!active].queueIndex] = pp;
+          pp->inQueue = 1;
+          pp->ticks_left = RSDL_PROC_QUANTUM;
+        }
+        ptable.l[curLevel].s[active].queueIndex = -1; // empty queue
+        ptable.l[curLevel].activeSet = !active;
+      }
+    }
+    release(&ptable.lock);
   }
 }
 
@@ -560,21 +561,83 @@ yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
   
+  // Re-enqueue to same level
+    if (myproc()->ticks_left > 0)
+    {
+      if (myproc()->inQueue != 1)
+      {
+        int active = ptable.l[activeLevel].activeSet;
+        if (ptable.l[activeLevel].s[active].queueIndex >= 4)
+        { // no room in same level
+          int isEnqueued = 0;
+          for (int i = 0; i < RSDL_LEVELS; i++)
+          {
+            int curLevel = levelOrder[i];
+            int a = ptable.l[curLevel].activeSet;
+            if (curLevel <= activeLevel)
+            {
+              continue;
+            }
+            if (ptable.l[curLevel].s[a].queueIndex < 4)
+            { // can enqueue
+              ptable.l[curLevel].s[a].queueIndex++;
+              ptable.l[curLevel].s[a].queue[ptable.l[curLevel].s[a].queueIndex] = myproc();
+              myproc()->inQueue = 1;
+              isEnqueued = 1;
+              break;
+            }
+          }
+          if (isEnqueued == 0)
+          { // no room in all levels ; enqueue in expired set of same level
+            ptable.l[activeLevel].s[!active].queueIndex++;
+            ptable.l[activeLevel].s[!active].queue[ptable.l[activeLevel].s[!active].queueIndex] = myproc();
+            myproc()->inQueue = 1;
+            myproc()->ticks_left = RSDL_PROC_QUANTUM;
+          }
+        }
+        else
+        {
+          ptable.l[activeLevel].s[active].queueIndex++;
+          ptable.l[activeLevel].s[active].queue[ptable.l[activeLevel].s[active].queueIndex] = myproc();
+          myproc()->inQueue = 1;
+        }
+      }
+    }
+    // Enqueue in lower level
+    else
+    {
+      if (myproc()->inQueue != 1)
+      {
+        int active = ptable.l[activeLevel].activeSet;
 
-  // Enqueue yielded process to expired set
-  if (myproc()->inQueue != 1){
-    if(activeSet == 0){
-      ptable.s[1].queueIndex++;
-      ptable.s[1].queue[ptable.s[1].queueIndex] = myproc();
-      myproc()->inQueue = 1;
+        int isEnqueued = 0;
+        for (int i = 0; i < RSDL_LEVELS; i++)
+        {
+          int curLevel = levelOrder[i];
+          int a = ptable.l[curLevel].activeSet;
+          if (curLevel <= activeLevel)
+          {
+            continue;
+          }
+          if (ptable.l[curLevel].s[a].queueIndex < 4)
+          { // can enqueue
+            ptable.l[curLevel].s[a].queueIndex++;
+            ptable.l[curLevel].s[a].queue[ptable.l[curLevel].s[a].queueIndex] = myproc();
+            myproc()->inQueue = 1;
+            myproc()->ticks_left = RSDL_PROC_QUANTUM;
+            isEnqueued = 1;
+            break;
+          }
+        }
+        if (isEnqueued == 0)
+        { // no room in all levels ; enqueue in expired set of same level
+          ptable.l[activeLevel].s[!active].queueIndex++;
+          ptable.l[activeLevel].s[!active].queue[ptable.l[activeLevel].s[!active].queueIndex] = myproc();
+          myproc()->inQueue = 1;
+          myproc()->ticks_left = RSDL_PROC_QUANTUM;
+        }
+      }
     }
-    else{
-      ptable.s[0].queueIndex++;
-      ptable.s[0].queue[ptable.s[0].queueIndex] = myproc();
-      myproc()->inQueue = 1;
-    }
-  
-  }
 
   myproc()->state = RUNNABLE;
   sched();
@@ -626,12 +689,45 @@ sleep(void *chan, struct spinlock *lk)
     release(lk);
   }
 
-  if (p->inQueue != 1) {
-    ptable.s[activeSet].queueIndex++;
-    ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p;
-    p->inQueue = 1;
-    //p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
-  }
+  if (p->inQueue != 1)
+    {
+      int active = ptable.l[activeLevel].activeSet;
+
+      if (ptable.l[activeLevel].s[active].queueIndex >= 4)
+      { // no room in same level
+        int isEnqueued = 0;
+        for (int i = 0; i < RSDL_LEVELS; i++)
+        {
+          int curLevel = levelOrder[i];
+          int a = ptable.l[curLevel].activeSet;
+          if (curLevel <= activeLevel)
+          {
+            continue;
+          }
+          if (ptable.l[curLevel].s[a].queueIndex < 4)
+          { // can enqueue
+            ptable.l[curLevel].s[a].queueIndex++;
+            ptable.l[curLevel].s[a].queue[ptable.l[curLevel].s[a].queueIndex] = p;
+            p->inQueue = 1;
+            isEnqueued = 1;
+            break;
+          }
+        }
+        if (isEnqueued == 0)
+        { // no room in all levels ; enqueue in expired set of same level
+          ptable.l[activeLevel].s[!active].queueIndex++;
+          ptable.l[activeLevel].s[!active].queue[ptable.l[activeLevel].s[!active].queueIndex] = p;
+          p->inQueue = 1;
+          p->ticks_left = RSDL_PROC_QUANTUM;
+        }
+      }
+      else
+      {
+        ptable.l[activeLevel].s[active].queueIndex++;
+        ptable.l[activeLevel].s[active].queue[ptable.l[activeLevel].s[active].queueIndex] = p;
+        p->inQueue = 1;
+      }
+    }
   
   // Go to sleep.
   p->chan = chan;
@@ -660,12 +756,46 @@ wakeup1(void *chan)
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->state == SLEEPING && p->chan == chan) {
       // Enqueue process
-      if (p->inQueue != 1) {
-        ptable.s[activeSet].queueIndex++;
-        ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p;
-        p->inQueue = 1;
-        p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
-      }
+
+        if (p->inQueue != 1)
+        {
+          int active = ptable.l[activeLevel].activeSet;
+
+          if (ptable.l[activeLevel].s[active].queueIndex >= 4)
+          { // no room in same level
+            int isEnqueued = 0;
+            for (int i = 0; i < RSDL_LEVELS; i++)
+            {
+              int curLevel = levelOrder[i];
+              int a = ptable.l[curLevel].activeSet;
+              if (curLevel <= activeLevel)
+              {
+                continue;
+              }
+              if (ptable.l[curLevel].s[a].queueIndex < 4)
+              { // can enqueue
+                ptable.l[curLevel].s[a].queueIndex++;
+                ptable.l[curLevel].s[a].queue[ptable.l[curLevel].s[a].queueIndex] = p;
+                p->inQueue = 1;
+                isEnqueued = 1;
+                break;
+              }
+            }
+            if (isEnqueued == 0)
+            { // no room in all levels ; enqueue in expired set of same level
+              ptable.l[activeLevel].s[!active].queueIndex++;
+              ptable.l[activeLevel].s[!active].queue[ptable.l[activeLevel].s[!active].queueIndex] = p;
+              p->inQueue = 1;
+              p->ticks_left = RSDL_PROC_QUANTUM;
+            }
+          }
+          else
+          {
+            ptable.l[activeLevel].s[active].queueIndex++;
+            ptable.l[activeLevel].s[active].queue[ptable.l[activeLevel].s[active].queueIndex] = p;
+            p->inQueue = 1;
+          }
+        }
 
       p->state = RUNNABLE;
     }
@@ -696,14 +826,48 @@ kill(int pid)
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING) {
         // Add process into queue
-        if (p->inQueue != 1) {
-          ptable.s[activeSet].queueIndex++;
-          ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p; 
-          p->inQueue = 1;   
-          p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued      
+
+          if (p->inQueue != 1)
+          {
+            int active = ptable.l[activeLevel].activeSet;
+
+            if (ptable.l[activeLevel].s[active].queueIndex >= 4)
+            { // no room in same level
+              int isEnqueued = 0;
+              for (int i = 0; i < RSDL_LEVELS; i++)
+              {
+                int curLevel = levelOrder[i];
+                int a = ptable.l[curLevel].activeSet;
+                if (curLevel <= activeLevel)
+                {
+                  continue;
+                }
+                if (ptable.l[curLevel].s[a].queueIndex < 4)
+                { // can enqueue
+                  ptable.l[curLevel].s[a].queueIndex++;
+                  ptable.l[curLevel].s[a].queue[ptable.l[curLevel].s[a].queueIndex] = p;
+                  p->inQueue = 1;
+                  isEnqueued = 1;
+                  break;
+                }
+              }
+              if (isEnqueued == 0)
+              { // no room in all levels ; enqueue in expired set of same level
+                ptable.l[activeLevel].s[!active].queueIndex++;
+                ptable.l[activeLevel].s[!active].queue[ptable.l[activeLevel].s[!active].queueIndex] = p;
+                p->inQueue = 1;
+                p->ticks_left = RSDL_PROC_QUANTUM;
+              }
+            }
+            else
+            {
+              ptable.l[activeLevel].s[active].queueIndex++;
+              ptable.l[activeLevel].s[active].queue[ptable.l[activeLevel].s[active].queueIndex] = p;
+              p->inQueue = 1;
+            }
+          }
+          p->state = RUNNABLE;
         }
-        p->state = RUNNABLE;
-      }
         
       release(&ptable.lock);
       return 0;
