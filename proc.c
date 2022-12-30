@@ -7,10 +7,12 @@
 #include "proc.h"
 #include "spinlock.h"
 
+int activeSet = 0;
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
-  struct set s1; //The active set
+  struct set s[2]; 
 } ptable;
 
 static struct proc *initproc;
@@ -25,7 +27,8 @@ void
 pinit(void)
 {
   initlock(&ptable.lock, "ptable");
-  ptable.s1.queueIndex = -1;  //Index being -1 implies that there is nothing within the queue
+  ptable.s[0].queueIndex = -1;  //Index being -1 implies that there is nothing within the queue
+  ptable.s[1].queueIndex = -1;
 }
 
 // Must be called with interrupts disabled
@@ -150,11 +153,11 @@ userinit(void)
   // because the assignment might not be atomic.
   acquire(&ptable.lock);
 
-  // Add init into the queue
-  ptable.s1.queueIndex++;
-  ptable.s1.queue[ptable.s1.queueIndex] = p;
+  // Add init into the 1st queue
+  ptable.s[0].queueIndex++;
+  ptable.s[0].queue[ptable.s[0].queueIndex] = p;
   p->inQueue = 1;
-
+  
   p->state = RUNNABLE;
   p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
   release(&ptable.lock);
@@ -222,8 +225,8 @@ fork(void)
   acquire(&ptable.lock);
 
   //Add newly made processes into the queue
-  ptable.s1.queueIndex++;
-  ptable.s1.queue[ptable.s1.queueIndex] = np;
+  ptable.s[activeSet].queueIndex++;
+  ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = np;
   np->inQueue = 1;
 
   np->state = RUNNABLE;
@@ -323,12 +326,12 @@ wait(void)
     }
 
     // Add the sleeping processes into the queue
-    /*if (curproc->inQueue != 1) {
-      ptable.s1.queueIndex++;
-      ptable.s1.queue[ptable.s1.queueIndex] = curproc;
+    if (curproc->inQueue != 1) {
+      ptable.s[activeSet].queueIndex++;
+      ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = curproc;
       curproc->inQueue = 1;
       curproc->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
-    } */
+    } 
 
     // No point waiting if we don't have any children.
     if(!havekids || curproc->killed){
@@ -372,13 +375,22 @@ scheduler(void)
     acquire(&ptable.lock);
     // There should be one more outer for loop but we omit it for now
 
+    //cprintf("current process is: %s\n", myproc()->name);
+    //cprintf("activeSet is %d\n",activeSet);
+    // Assume there are no runnable processes
+    int noRunnableProc = 1;
+
     // Loop through all the items within the queue
+    
     int i;
-    for(i=0; i<=ptable.s1.queueIndex; i++) {
-      p = ptable.s1.queue[i];
+    for(i=0; i<=ptable.s[activeSet].queueIndex; i++) {
+      p = ptable.s[activeSet].queue[i];
       if(p->state != RUNNABLE) {
         continue;
       }
+      // There is a runnable proc
+      noRunnableProc = 0;
+
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
@@ -403,34 +415,102 @@ scheduler(void)
           
           struct proc *pp;
 
-          cprintf("%d|active|0(0)", ticks);
-          for (int k=0; k<=ptable.s1.queueIndex; k++) {
-            pp = ptable.s1.queue[k];
-            cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
+          if(activeSet == 0){
+            cprintf("%d|active|0(0)", ticks);
+            for (int k=0; k<=ptable.s[0].queueIndex; k++) {
+              pp = ptable.s[0].queue[k];
+              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
+            }
+            cprintf("\n");
+            cprintf("%d|expired|0(0)", ticks);
+            for (int k=0; k<=ptable.s[1].queueIndex; k++) {
+              pp = ptable.s[1].queue[k];
+              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
+            }
           }
-
+          else{
+            cprintf("%d|active|0(0)", ticks);
+            for (int k=0; k<=ptable.s[1].queueIndex; k++) {
+              pp = ptable.s[1].queue[k];
+              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
+            }
+            cprintf("\n");
+            cprintf("%d|expired|0(0)", ticks);
+            for (int k=0; k<=ptable.s[0].queueIndex; k++) {
+              pp = ptable.s[0].queue[k];
+              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
+            }
+          }
+          
           cprintf("\n");
         }
       }
-
-      //Update queue
-      for (int j=i; j<ptable.s1.queueIndex; j++) {
-        ptable.s1.queue[j] = ptable.s1.queue[j+1];
-      }
-      ptable.s1.queueIndex--;
-      p->inQueue = 0;
-
       
-
+      //Update active queue
+      for (int j=i; j<ptable.s[activeSet].queueIndex; j++) {
+        ptable.s[activeSet].queue[j] = ptable.s[activeSet].queue[j+1];
+      }
+      ptable.s[activeSet].queueIndex--;
+      p->inQueue = 0;
+      
+      
       swtch(&(c->scheduler), p->context);
       switchkvm();     
 
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;     
-      i = 0;  //Make i into 0 so that we search from the front of the queue  
+      i = -1;  //Make i into 0 so that we search from the front of the queue  
     } 
+    
+    //swapping sets
+    if(noRunnableProc == 1)
+    {
+      if(activeSet == 0)
+      {
+        struct proc *pp;
+        
+        // replenish quanta
+        for (int j=0; j<=ptable.s[1].queueIndex; j++) {
+          pp = ptable.s[1].queue[j];
+          pp->ticks_left = RSDL_PROC_QUANTUM;
+        }
+
+        // transfer sleeping procs
+        for (int k=0; k<=ptable.s[0].queueIndex; k++) {
+          pp = ptable.s[0].queue[k];
+
+          ptable.s[1].queueIndex++;
+          ptable.s[1].queue[ptable.s[1].queueIndex] = pp;
+    
+        }
+        ptable.s[0].queueIndex = -1; //empty queue
+        activeSet = 1;
+      }
+      else{
+        struct proc *pp;
+
+        // replenish quanta
+        for (int j=0; j<=ptable.s[0].queueIndex; j++) {
+          pp = ptable.s[0].queue[j];
+          pp->ticks_left = RSDL_PROC_QUANTUM;
+        }
+
+        // transfer sleeping procs
+        for (int k=0; k<=ptable.s[1].queueIndex; k++) {
+          pp = ptable.s[1].queue[k];
+
+          ptable.s[0].queueIndex++;
+          ptable.s[0].queue[ptable.s[0].queueIndex] = pp;
+        }
+        
+        ptable.s[1].queueIndex = -1; //empty queue
+        activeSet = 0;
+      }
+    }
+
     release(&ptable.lock);
+    
 
     /*acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
@@ -488,13 +568,20 @@ yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
   
-  // Enqueue yielded process
-  if (myproc()->inQueue != 1) {
-    ptable.s1.queueIndex++;
-    ptable.s1.queue[ptable.s1.queueIndex] = myproc();
-    myproc()->inQueue = 1;
-    myproc()->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
 
+  // Enqueue yielded process to expired set
+  if (myproc()->inQueue != 1){
+    if(activeSet == 0){
+      ptable.s[1].queueIndex++;
+      ptable.s[1].queue[ptable.s[1].queueIndex] = myproc();
+      myproc()->inQueue = 1;
+    }
+    else{
+      ptable.s[0].queueIndex++;
+      ptable.s[0].queue[ptable.s[0].queueIndex] = myproc();
+      myproc()->inQueue = 1;
+    }
+  
   }
 
   myproc()->state = RUNNABLE;
@@ -548,10 +635,10 @@ sleep(void *chan, struct spinlock *lk)
   }
 
   if (p->inQueue != 1) {
-    ptable.s1.queueIndex++;
-    ptable.s1.queue[ptable.s1.queueIndex] = p;
+    ptable.s[activeSet].queueIndex++;
+    ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p;
     p->inQueue = 1;
-    p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
+    //p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
   }
   
   // Go to sleep.
@@ -582,8 +669,8 @@ wakeup1(void *chan)
     if(p->state == SLEEPING && p->chan == chan) {
       // Enqueue process
       if (p->inQueue != 1) {
-        ptable.s1.queueIndex++;
-        ptable.s1.queue[ptable.s1.queueIndex] = p;
+        ptable.s[activeSet].queueIndex++;
+        ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p;
         p->inQueue = 1;
         p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
       }
@@ -618,8 +705,8 @@ kill(int pid)
       if(p->state == SLEEPING) {
         // Add process into queue
         if (p->inQueue != 1) {
-          ptable.s1.queueIndex++;
-          ptable.s1.queue[ptable.s1.queueIndex] = p; 
+          ptable.s[activeSet].queueIndex++;
+          ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p; 
           p->inQueue = 1;   
           p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued      
         }

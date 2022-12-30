@@ -2,7 +2,7 @@
 #include "user.h"
 
 int main() {
-  schedlog(10000);
+  schedlog(100000000);
 
   for (int i = 0; i < 5; i++) {
     if (fork() == 0) {
