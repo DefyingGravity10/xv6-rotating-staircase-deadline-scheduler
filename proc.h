@@ -50,18 +50,13 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int inQueue;                 // Is a flag that tells whether the proc is in a queue or not
-  int ticks_left;
+  int ticks_left;              // Number of ticks left in a process
+  int currLevel;               // A process' current level
 };
 
 struct set {
-  int queueIndex;
-  struct proc *queue[NPROC];   //Usual format (at least what I think) should be 
-                              // struct proc *queue[RSDL_LEVELS][NPROC]
-};
-
-struct level {
-  int activeSet;
-  struct set s[2];
+  int queueIndex[RSDL_LEVELS];              // Stores (last) indices of all the levels
+  struct proc *queue[RSDL_LEVELS][NPROC];   // Queue for one set composed of RSDL_LEVELS that can store NPROC procs
 };
 
 // Process memory is laid out contiguously, low addresses first:
