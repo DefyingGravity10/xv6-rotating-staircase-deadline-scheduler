@@ -535,7 +535,7 @@ yield(void)
       panic("Yield before the quantum finished!");
     }
 
-    else 
+    else if (myproc()->inQueue != 1)
     { 
       // Enqueue in the next available level
       int isEnqueued = 0;
@@ -632,9 +632,9 @@ sleep(void *chan, struct spinlock *lk)
       if (isEnqueued == 0) {
         int b = RSDL_STARTING_LEVEL;
         ptable.s[!activeSet].queueIndex[b]++;
-        ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = myproc();
-        myproc()->inQueue = 1;
-        myproc()->ticks_left = RSDL_PROC_QUANTUM;
+        ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
+        p->inQueue = 1;
+        p->ticks_left = RSDL_PROC_QUANTUM;
       }
     }
     // Enqueue on the same level. No replenishment of quanta
@@ -692,9 +692,9 @@ wakeup1(void *chan)
           if (isEnqueued == 0) {
             int b = RSDL_STARTING_LEVEL;
             ptable.s[!activeSet].queueIndex[b]++;
-            ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = myproc();
-            myproc()->inQueue = 1;
-            myproc()->ticks_left = RSDL_PROC_QUANTUM;
+            ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
+            p->inQueue = 1;
+            p->ticks_left = RSDL_PROC_QUANTUM;
           }
         }
         // Enqueue in same level (since it was just in the SLEEPING STATE)
@@ -751,9 +751,9 @@ kill(int pid)
             if (isEnqueued == 0) {
               int b = RSDL_STARTING_LEVEL;
               ptable.s[!activeSet].queueIndex[b]++;
-              ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = myproc();
-              myproc()->inQueue = 1;
-              myproc()->ticks_left = RSDL_PROC_QUANTUM;
+              ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
+              p->inQueue = 1;
+              p->ticks_left = RSDL_PROC_QUANTUM;
             }
           }
           // Enqueue in same level (since it was just in the SLEEPING STATE)          
