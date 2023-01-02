@@ -104,8 +104,12 @@ trap(struct trapframe *tf)
   // If interrupts were on while locks held, would need to check nlock.
   if(myproc() && myproc()->state == RUNNING &&
     tf->trapno == T_IRQ0+IRQ_TIMER)
-    if (--myproc()->ticks_left == 0) 
-      yield();
+    {
+      --*myproc()->level_ticks_left; // If this is triggered then all procs in level shud go in lower level
+                                      // Would making a new function be smart???
+      if (--myproc()->ticks_left == 0) 
+        yield();
+    }
 
   // Check if the process has been killed since we yielded
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)

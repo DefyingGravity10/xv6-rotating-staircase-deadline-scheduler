@@ -32,6 +32,9 @@ pinit(void)
     //Index being -1 implies that there is nothing within the queue
     ptable.s[0].queueIndex[j] = -1;  
     ptable.s[1].queueIndex[j] = -1;
+
+    ptable.s[0].lv_tix[j] = RSDL_LEVEL_QUANTUM;
+    ptable.s[1].lv_tix[j] = RSDL_LEVEL_QUANTUM;
   }
 } 
 
@@ -169,11 +172,12 @@ userinit(void)
 
   // Add init into the 1st queue
   ptable.s[activeSet].queueIndex[RSDL_STARTING_LEVEL]++;
-  ptable.s[activeSet].queue[RSDL_STARTING_LEVEL][ptable.s[0].queueIndex[RSDL_STARTING_LEVEL]] = p;
+  ptable.s[activeSet].queue[RSDL_STARTING_LEVEL][ptable.s[activeSet].queueIndex[RSDL_STARTING_LEVEL]] = p;
   p->inQueue = 1;
   p->currLevel = RSDL_STARTING_LEVEL;
   p->state = RUNNABLE;
   p->ticks_left = RSDL_PROC_QUANTUM; 
+  p->level_ticks_left = &ptable.s[activeSet].lv_tix[RSDL_STARTING_LEVEL];
 
   release(&ptable.lock);
 }
@@ -246,6 +250,7 @@ fork(void)
   np->currLevel = RSDL_STARTING_LEVEL;
   np->state = RUNNABLE;
   np->ticks_left = RSDL_PROC_QUANTUM;
+  np->level_ticks_left = &ptable.s[activeSet].lv_tix[RSDL_STARTING_LEVEL];
 
   release(&ptable.lock);
 
@@ -407,7 +412,7 @@ scheduler(void)
             struct proc *pp;
 
             for (int x = 0; x < RSDL_LEVELS; x++) {
-              cprintf("%d|active|%d(0)", ticks, x);
+              cprintf("%d|active|%d(%d)", ticks, x, ptable.s[activeSet].lv_tix[x]);
               
               for (int k = 0; k <= ptable.s[activeSet].queueIndex[x]; k++) {
                 pp = ptable.s[activeSet].queue[x][k];
@@ -418,7 +423,7 @@ scheduler(void)
 
             int e = !activeSet;
             for (int x = 0; x < RSDL_LEVELS; x++) {
-              cprintf("%d|expired|%d(0)", ticks, x);
+              cprintf("%d|expired|%d(%d)", ticks, x, ptable.s[e].lv_tix[x]);
 
               for (int k = 0; k <= ptable.s[e].queueIndex[x]; k++) {
                 pp = ptable.s[e].queue[x][k];
@@ -457,6 +462,9 @@ scheduler(void)
         struct proc *pp;
 
         for (level = 0; level < RSDL_LEVELS; level++) {
+
+          ptable.s[!activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
+
           if (level < RSDL_STARTING_LEVEL) {
             continue;
           }
@@ -466,6 +474,7 @@ scheduler(void)
             pp->ticks_left = RSDL_PROC_QUANTUM;
             pp->currLevel = RSDL_STARTING_LEVEL;
             ptable.s[!activeSet].queueIndex[RSDL_STARTING_LEVEL]++;
+            pp->level_ticks_left = &ptable.s[!activeSet].lv_tix[level];
             int idx = ptable.s[!activeSet].queueIndex[RSDL_STARTING_LEVEL];
             ptable.s[!activeSet].queue[RSDL_STARTING_LEVEL][idx] = pp;
           }
@@ -477,6 +486,7 @@ scheduler(void)
         struct proc *pp;
 
         for (level = 0; level < RSDL_LEVELS; level++) {
+          ptable.s[!activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
           if (level < RSDL_STARTING_LEVEL) {
             continue;
           }
@@ -486,6 +496,7 @@ scheduler(void)
             pp->ticks_left = RSDL_PROC_QUANTUM;
             pp->currLevel = RSDL_STARTING_LEVEL;
             ptable.s[!activeSet].queueIndex[RSDL_STARTING_LEVEL]++;
+            pp->level_ticks_left = &ptable.s[!activeSet].lv_tix[level];
             int idx = ptable.s[!activeSet].queueIndex[RSDL_STARTING_LEVEL];
             ptable.s[!activeSet].queue[RSDL_STARTING_LEVEL][idx] = pp;
           }
@@ -547,7 +558,8 @@ yield(void)
           ptable.s[activeSet].queue[i][a] = myproc();
           myproc()->currLevel++;
           myproc()->inQueue = 1;
-          myproc()->ticks_left = RSDL_PROC_QUANTUM;
+          myproc()->ticks_left = RSDL_PROC_QUANTUM;          
+          myproc()->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
           isEnqueued = 1;
           break;
         }
@@ -561,6 +573,7 @@ yield(void)
         myproc()->inQueue = 1;
         myproc()->ticks_left = RSDL_PROC_QUANTUM;
         myproc()->currLevel = RSDL_STARTING_LEVEL;
+        myproc()->level_ticks_left = &ptable.s[!activeSet].lv_tix[b];
       }
     }
 
@@ -625,6 +638,7 @@ sleep(void *chan, struct spinlock *lk)
           int a = ptable.s[activeSet].queueIndex[i];
           ptable.s[activeSet].queue[i][a] = p;
           p->inQueue = 1;
+          p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
           isEnqueued = 1;
           break;
         }
@@ -634,6 +648,7 @@ sleep(void *chan, struct spinlock *lk)
         ptable.s[!activeSet].queueIndex[b]++;
         ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
         p->inQueue = 1;
+        p->level_ticks_left = &ptable.s[!activeSet].lv_tix[b];
         p->ticks_left = RSDL_PROC_QUANTUM;
       }
     }
@@ -685,6 +700,7 @@ wakeup1(void *chan)
               ptable.s[activeSet].queue[i][a] = p;
               p->inQueue = 1;
               isEnqueued = 1;
+              p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
               break;
             }
           }
@@ -694,6 +710,7 @@ wakeup1(void *chan)
             ptable.s[!activeSet].queueIndex[b]++;
             ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
             p->inQueue = 1;
+            p->level_ticks_left = &ptable.s[!activeSet].lv_tix[b];
             p->ticks_left = RSDL_PROC_QUANTUM;
           }
         }
@@ -744,6 +761,7 @@ kill(int pid)
                 int a = ptable.s[activeSet].queueIndex[i];
                 ptable.s[activeSet].queue[i][a] = p;
                 p->inQueue = 1;
+                p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
                 isEnqueued = 1;
                 break;
               }
@@ -753,6 +771,7 @@ kill(int pid)
               ptable.s[!activeSet].queueIndex[b]++;
               ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
               p->inQueue = 1;
+              p->level_ticks_left = &ptable.s[!activeSet].lv_tix[b];
               p->ticks_left = RSDL_PROC_QUANTUM;
             }
           }
