@@ -121,7 +121,8 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
-void            schedlog(int);
+void            schedlog(int);    
+void            enqueueNextLevel(void);        
 
 // swtch.S
 void            swtch(struct context**, struct context*);

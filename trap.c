@@ -105,10 +105,12 @@ trap(struct trapframe *tf)
   if(myproc() && myproc()->state == RUNNING &&
     tf->trapno == T_IRQ0+IRQ_TIMER)
     {
-      --*myproc()->level_ticks_left; // If this is triggered then all procs in level shud go in lower level
-                                      // Would making a new function be smart???
-      if (--myproc()->ticks_left == 0) 
+      if(--*myproc()->level_ticks_left == 0) {
+        enqueueNextLevel();
+      }
+      if (--myproc()->ticks_left == 0) {
         yield();
+      }
     }
 
   // Check if the process has been killed since we yielded

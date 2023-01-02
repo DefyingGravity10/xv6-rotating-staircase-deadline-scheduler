@@ -33,8 +33,8 @@ pinit(void)
     ptable.s[0].queueIndex[j] = -1;  
     ptable.s[1].queueIndex[j] = -1;
 
-    ptable.s[0].lv_tix[j] = RSDL_LEVEL_QUANTUM;
-    ptable.s[1].lv_tix[j] = RSDL_LEVEL_QUANTUM;
+    ptable.s[activeSet].lv_tix[j] = RSDL_LEVEL_QUANTUM;
+    ptable.s[!activeSet].lv_tix[j] = RSDL_LEVEL_QUANTUM;
   }
 } 
 
@@ -462,7 +462,8 @@ scheduler(void)
         struct proc *pp;
 
         for (level = 0; level < RSDL_LEVELS; level++) {
-
+          
+          ptable.s[activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
           ptable.s[!activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
 
           if (level < RSDL_STARTING_LEVEL) {
@@ -486,7 +487,9 @@ scheduler(void)
         struct proc *pp;
 
         for (level = 0; level < RSDL_LEVELS; level++) {
+          ptable.s[activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
           ptable.s[!activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
+          
           if (level < RSDL_STARTING_LEVEL) {
             continue;
           }
@@ -552,7 +555,7 @@ yield(void)
       int isEnqueued = 0;
       int nextLowest = myproc()->currLevel + 1;
       for (int i = nextLowest; i < RSDL_LEVELS; i++) {
-        if (ptable.s[activeSet].queueIndex[i] < NPROC-1) {
+        if (ptable.s[activeSet].queueIndex[i] < NPROC-1) { // || ptable.s[activeSet].lv_tix[i] > 0
           ptable.s[activeSet].queueIndex[i]++;
           int a = ptable.s[activeSet].queueIndex[i];
           ptable.s[activeSet].queue[i][a] = myproc();
@@ -792,6 +795,64 @@ kill(int pid)
   }
   release(&ptable.lock);
   return -1;
+}
+
+void enqueueNextLevel() {
+  acquire(&ptable.lock);
+  int isEnqueued = 0;
+  int dequeuedLevel = myproc()->currLevel;
+  int nextLowest = myproc()->currLevel+1;
+  struct proc *p;
+
+  for (int i = nextLowest; i < RSDL_LEVELS; i++) {
+    // Implies that we can enqueue processes here. Conditional just checks if there is enough space to place the procs
+    if (ptable.s[activeSet].queueIndex[i] + ptable.s[activeSet].queueIndex[myproc()->currLevel] + 1 < NPROC-1 && ptable.s[activeSet].lv_tix[i] > 0) {
+      // Try lang zzz
+      for (int j = 0; j <= ptable.s[activeSet].queueIndex[myproc()->currLevel]; j++) {
+        p = ptable.s[activeSet].queue[myproc()->currLevel][j];
+        ptable.s[activeSet].queueIndex[i]++;
+        ptable.s[activeSet].queue[i][ptable.s[activeSet].queueIndex[i]] = p;
+        p->currLevel = i;
+        p->inQueue = 1;
+        p->ticks_left = RSDL_PROC_QUANTUM;
+        p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
+      }
+      ptable.s[activeSet].queueIndex[i]++;
+      ptable.s[activeSet].queue[i][ptable.s[activeSet].queueIndex[i]] = myproc();
+      myproc()->currLevel = i;
+      myproc()->inQueue = 1;
+      myproc()->ticks_left = RSDL_PROC_QUANTUM;
+      myproc()->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
+      isEnqueued = 1;
+      ptable.s[activeSet].queueIndex[dequeuedLevel] = -1;
+    }
+    if (isEnqueued == 1) {
+      break;
+    }
+  }
+  
+  if (isEnqueued == 0) {
+    for (int j = 0; j <= ptable.s[activeSet].queueIndex[myproc()->currLevel]; j++) {
+      p = ptable.s[activeSet].queue[myproc()->currLevel][j];
+      ptable.s[!activeSet].queueIndex[RSDL_STARTING_LEVEL]++;
+      ptable.s[!activeSet].queue[RSDL_STARTING_LEVEL][ptable.s[!activeSet].queueIndex[RSDL_STARTING_LEVEL]] = p;
+      p->currLevel = RSDL_STARTING_LEVEL;
+      p->inQueue = 1;
+      p->ticks_left = RSDL_PROC_QUANTUM;
+      p->level_ticks_left = &ptable.s[!activeSet].lv_tix[RSDL_STARTING_LEVEL];
+    }
+    ptable.s[!activeSet].queueIndex[RSDL_STARTING_LEVEL]++;
+    ptable.s[!activeSet].queue[RSDL_STARTING_LEVEL][ptable.s[!activeSet].queueIndex[RSDL_STARTING_LEVEL]] = myproc();
+    myproc()->currLevel = RSDL_STARTING_LEVEL;
+    myproc()->inQueue = 1;
+    myproc()->ticks_left = RSDL_PROC_QUANTUM;
+    myproc()->level_ticks_left = &ptable.s[!activeSet].lv_tix[RSDL_STARTING_LEVEL];
+    ptable.s[activeSet].queueIndex[dequeuedLevel] = -1;
+  }
+
+  myproc()->state = RUNNABLE;
+  sched();
+  release(&ptable.lock);
 }
 
 //PAGEBREAK: 36
