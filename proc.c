@@ -559,7 +559,7 @@ void
 yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
-  
+
     if (myproc()->ticks_left > 0)
     {
       panic("Yield before the quantum finished!");
@@ -648,11 +648,11 @@ sleep(void *chan, struct spinlock *lk)
 
   if (p->inQueue != 1) 
   {
-    if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64) {
+    if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64 || ptable.s[activeSet].lv_tix[p->currLevel] <= 0) {
       int isEnqueued = 0;
       int nextLowest = p->currLevel + 1;
       for (int i = nextLowest; i < RSDL_LEVELS; i++) {
-        if (ptable.s[activeSet].queueIndex[i] < NPROC-1) {
+        if (ptable.s[activeSet].queueIndex[i] < NPROC-1 && ptable.s[activeSet].lv_tix[i] > 0) {
           ptable.s[activeSet].queueIndex[i]++;
           int a = ptable.s[activeSet].queueIndex[i];
           ptable.s[activeSet].queue[i][a] = p;
@@ -709,11 +709,11 @@ wakeup1(void *chan)
       // Enqueue process
       if (p->inQueue != 1) 
       {
-        if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64) {
+        if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64 || ptable.s[activeSet].lv_tix[p->currLevel] <= 0) {
           int isEnqueued = 0;
           int nextLowest = p->currLevel + 1;
           for (int i = nextLowest; i < RSDL_LEVELS; i++) {
-            if (ptable.s[activeSet].queueIndex[i] < NPROC-1) {
+            if (ptable.s[activeSet].queueIndex[i] < NPROC-1 && ptable.s[activeSet].lv_tix[i] > 0) {
               ptable.s[activeSet].queueIndex[i]++;
               int a = ptable.s[activeSet].queueIndex[i];
               ptable.s[activeSet].queue[i][a] = p;
@@ -771,11 +771,11 @@ kill(int pid)
         // Add process into queue
         if (p->inQueue != 1) 
         {
-          if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64) {
+          if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64 || ptable.s[activeSet].lv_tix[p->currLevel] <= 0) {
             int isEnqueued = 0;
             int nextLowest = p->currLevel + 1;
             for (int i = nextLowest; i < RSDL_LEVELS; i++) {
-              if (ptable.s[activeSet].queueIndex[i] < NPROC-1) {
+              if (ptable.s[activeSet].queueIndex[i] < NPROC-1 && ptable.s[activeSet].lv_tix[i] > 0) {
                 ptable.s[activeSet].queueIndex[i]++;
                 int a = ptable.s[activeSet].queueIndex[i];
                 ptable.s[activeSet].queue[i][a] = p;
