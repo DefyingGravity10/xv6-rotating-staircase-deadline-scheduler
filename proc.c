@@ -656,6 +656,7 @@ sleep(void *chan, struct spinlock *lk)
           ptable.s[activeSet].queueIndex[i]++;
           int a = ptable.s[activeSet].queueIndex[i];
           ptable.s[activeSet].queue[i][a] = p;
+          p->currLevel = i;
           p->inQueue = 1;
           p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
           isEnqueued = 1;
@@ -717,6 +718,7 @@ wakeup1(void *chan)
               ptable.s[activeSet].queueIndex[i]++;
               int a = ptable.s[activeSet].queueIndex[i];
               ptable.s[activeSet].queue[i][a] = p;
+              p->currLevel = i;
               p->inQueue = 1;
               isEnqueued = 1;
               p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
@@ -779,6 +781,7 @@ kill(int pid)
                 ptable.s[activeSet].queueIndex[i]++;
                 int a = ptable.s[activeSet].queueIndex[i];
                 ptable.s[activeSet].queue[i][a] = p;
+                p->currLevel = i;
                 p->inQueue = 1;
                 p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
                 isEnqueued = 1;

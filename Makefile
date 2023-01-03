@@ -200,6 +200,7 @@ UPROGS=\
 	_patay\
 	_test5\
 	_cf\
+	_test6\
 
 
 fs.img: mkfs README $(UPROGS)

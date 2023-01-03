@@ -2,7 +2,6 @@
 #include "user.h"
 
 int main() {
-    
   if (fork() != 0) {
     wait();
   }
