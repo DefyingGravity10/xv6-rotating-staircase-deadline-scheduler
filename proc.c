@@ -616,6 +616,7 @@ sleep(void *chan, struct spinlock *lk)
 
   if (p->inQueue != 1) 
   {
+    // Should not be triggered
     if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64) {
       int isEnqueued = 0;
       int nextLowest = p->currLevel + 1;
@@ -624,6 +625,7 @@ sleep(void *chan, struct spinlock *lk)
           ptable.s[activeSet].queueIndex[i]++;
           int a = ptable.s[activeSet].queueIndex[i];
           ptable.s[activeSet].queue[i][a] = p;
+          p->currLevel = i;
           p->inQueue = 1;
           isEnqueued = 1;
           break;
@@ -675,6 +677,7 @@ wakeup1(void *chan)
       // Enqueue process
       if (p->inQueue != 1) 
       {
+        // Should not be triggered
         if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64) {
           int isEnqueued = 0;
           int nextLowest = p->currLevel + 1;
@@ -683,6 +686,7 @@ wakeup1(void *chan)
               ptable.s[activeSet].queueIndex[i]++;
               int a = ptable.s[activeSet].queueIndex[i];
               ptable.s[activeSet].queue[i][a] = p;
+              p->currLevel = i;
               p->inQueue = 1;
               isEnqueued = 1;
               break;
@@ -735,6 +739,7 @@ kill(int pid)
         // Add process into queue
         if (p->inQueue != 1) 
         {
+          // Should not be triggered 
           if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64) {
             int isEnqueued = 0;
             int nextLowest = p->currLevel + 1;
@@ -743,6 +748,7 @@ kill(int pid)
                 ptable.s[activeSet].queueIndex[i]++;
                 int a = ptable.s[activeSet].queueIndex[i];
                 ptable.s[activeSet].queue[i][a] = p;
+                p->currLevel = i;
                 p->inQueue = 1;
                 isEnqueued = 1;
                 break;
