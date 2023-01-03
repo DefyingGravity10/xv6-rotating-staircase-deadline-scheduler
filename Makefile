@@ -198,6 +198,8 @@ UPROGS=\
 	_short\
 	_long\
 	_patay\
+	_test5\
+	_cf\
 
 
 fs.img: mkfs README $(UPROGS)

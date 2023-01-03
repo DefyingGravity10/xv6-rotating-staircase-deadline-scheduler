@@ -243,14 +243,30 @@ fork(void)
 
   acquire(&ptable.lock);
 
-  // Add new procs in the active set 
-  ptable.s[activeSet].queueIndex[RSDL_STARTING_LEVEL]++;
-  ptable.s[activeSet].queue[RSDL_STARTING_LEVEL][ptable.s[activeSet].queueIndex[RSDL_STARTING_LEVEL]] = np;
-  np->inQueue = 1;
-  np->currLevel = RSDL_STARTING_LEVEL;
-  np->state = RUNNABLE;
-  np->ticks_left = RSDL_PROC_QUANTUM;
-  np->level_ticks_left = &ptable.s[activeSet].lv_tix[RSDL_STARTING_LEVEL];
+  // Add new process in next available level
+  int isEnqueued = 0;
+  for (int j=RSDL_STARTING_LEVEL; j<RSDL_LEVELS; j++) {
+    if (ptable.s[activeSet].lv_tix[j] > 0) {
+      ptable.s[activeSet].queueIndex[j]++;
+      ptable.s[activeSet].queue[j][ptable.s[activeSet].queueIndex[j]] = np;
+      np->inQueue = 1;
+      np->currLevel = j;
+      np->state = RUNNABLE;
+      np->ticks_left = RSDL_PROC_QUANTUM;
+      np->level_ticks_left = &ptable.s[activeSet].lv_tix[j];
+      isEnqueued = 1;
+      break;
+    }
+  }
+
+  if (isEnqueued == 0) {
+    int j = RSDL_STARTING_LEVEL;
+    ptable.s[!activeSet].queueIndex[j]++;
+    ptable.s[!activeSet].queue[j][ptable.s[!activeSet].queueIndex[j]] = np;
+    np->inQueue = 1;
+    np->currLevel = j;
+    np->level_ticks_left = &ptable.s[!activeSet].lv_tix[j];
+  }
 
   release(&ptable.lock);
 
