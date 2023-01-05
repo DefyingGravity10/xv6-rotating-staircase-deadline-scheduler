@@ -108,7 +108,7 @@ trap(struct trapframe *tf)
       if(--*myproc()->level_ticks_left == 0) {
         enqueueNextLevel();
       }
-      if (--myproc()->ticks_left == 0) {
+      else if (--myproc()->ticks_left == 0) {
         yield();
       }
     }
