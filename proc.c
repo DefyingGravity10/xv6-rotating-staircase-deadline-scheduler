@@ -868,7 +868,7 @@ void enqueueNextLevel() {
     myproc()->level_ticks_left = &ptable.s[!activeSet].lv_tix[RSDL_STARTING_LEVEL];
     ptable.s[activeSet].queueIndex[dequeuedLevel] = -1;
   }
-
+  
   myproc()->state = RUNNABLE;
   sched();
   release(&ptable.lock);
