@@ -571,7 +571,7 @@ yield(void)
       int isEnqueued = 0;
       int nextLowest = myproc()->currLevel + 1;
       for (int i = nextLowest; i < RSDL_LEVELS; i++) {
-        if (ptable.s[activeSet].queueIndex[i] < NPROC-1) { // || ptable.s[activeSet].lv_tix[i] > 0
+        if (ptable.s[activeSet].queueIndex[i] < NPROC-1 && ptable.s[activeSet].lv_tix[i] > 0) { 
           ptable.s[activeSet].queueIndex[i]++;
           int a = ptable.s[activeSet].queueIndex[i];
           ptable.s[activeSet].queue[i][a] = myproc();
