@@ -23,3 +23,4 @@
 #define SYS_yield     22
 #define SYS_shutdown  23
 #define SYS_schedlog  24
+#define SYS_priofork  25

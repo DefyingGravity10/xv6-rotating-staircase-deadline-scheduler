@@ -52,12 +52,13 @@ struct proc {
   int inQueue;                 // Is a flag that tells whether the proc is in a queue or not
   int ticks_left;              // Number of ticks left in a process
   int currLevel;               // A process' current level
-  int *level_ticks_left;
+  int *level_ticks_left;       // A pointer to the current level's remaining quanta
+  int prioLevel;               // Default priority level of the process
 };
 
 struct set {
   int queueIndex[RSDL_LEVELS];              // Stores (last) indices of all the levels
-  int lv_tix[RSDL_LEVELS];
+  int lv_tix[RSDL_LEVELS];                  // Stores the amount of ticks left for each level
   struct proc *queue[RSDL_LEVELS][NPROC];   // Queue for one set composed of RSDL_LEVELS that can store NPROC procs
 };
 

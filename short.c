@@ -4,7 +4,7 @@
 int main() {
   int dummy = 0;
   //4e9 is the original value
-  for (unsigned int i = 0; i < 2e9; i++) {
+  for (unsigned int i = 0; i < 10000; i++) {
     dummy += i;
   }
   exit();

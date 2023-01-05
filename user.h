@@ -27,6 +27,7 @@ int uptime(void);
 int yield(void);
 int shutdown(void);
 int schedlog(int);
+int priofork(int);
 
 // ulib.c
 int stat(const char*, struct stat*);

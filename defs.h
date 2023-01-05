@@ -122,7 +122,8 @@ int             wait(void);
 void            wakeup(void*);
 void            yield(void);
 void            schedlog(int);    
-void            enqueueNextLevel(void);        
+void            enqueueNextLevel(void);   
+int             priofork(int);     
 
 // swtch.S
 void            swtch(struct context**, struct context*);

@@ -112,3 +112,15 @@ int sys_schedlog(void) {
   schedlog(n);
   return 0;
 }
+
+
+int sys_priofork(void) {
+  int n;
+
+  if (argint(0, &n) < 0) {
+    return -1;
+  }
+
+  //idk
+  return priofork(n);
+}
