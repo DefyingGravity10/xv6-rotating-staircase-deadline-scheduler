@@ -407,31 +407,18 @@ scheduler(void)
           
           struct proc *pp;
 
-          if(activeSet == 0){
-            cprintf("%d|active|0(0)", ticks);
-            for (int k=0; k<=ptable.s[0].queueIndex; k++) {
-              pp = ptable.s[0].queue[k];
-              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
-            }
-            cprintf("\n");
-            cprintf("%d|expired|0(0)", ticks);
-            for (int k=0; k<=ptable.s[1].queueIndex; k++) {
-              pp = ptable.s[1].queue[k];
-              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
-            }
+          
+          cprintf("%d|active|0(0)", ticks);
+          for (int k=0; k<=ptable.s[activeSet].queueIndex; k++) {
+            pp = ptable.s[activeSet].queue[k];
+            cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
           }
-          else{
-            cprintf("%d|active|0(0)", ticks);
-            for (int k=0; k<=ptable.s[1].queueIndex; k++) {
-              pp = ptable.s[1].queue[k];
-              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
-            }
-            cprintf("\n");
-            cprintf("%d|expired|0(0)", ticks);
-            for (int k=0; k<=ptable.s[0].queueIndex; k++) {
-              pp = ptable.s[0].queue[k];
-              cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
-            }
+          cprintf("\n");
+
+          cprintf("%d|expired|0(0)", ticks);
+          for (int k=0; k<=ptable.s[!activeSet].queueIndex; k++) {
+            pp = ptable.s[!activeSet].queue[k];
+            cprintf(",[%d]%s:%d(%d)", pp->pid, pp->name, pp->state, pp->ticks_left);
           }
           
           cprintf("\n");
@@ -458,47 +445,25 @@ scheduler(void)
     //swapping sets
     if(noRunnableProc == 1)
     {
-      if(activeSet == 0)
-      {
         struct proc *pp;
-        
-        // replenish quanta
-        for (int j=0; j<=ptable.s[1].queueIndex; j++) {
-          pp = ptable.s[1].queue[j];
-          pp->ticks_left = RSDL_PROC_QUANTUM;
-        }
-
         // transfer sleeping procs
-        for (int k=0; k<=ptable.s[0].queueIndex; k++) {
-          pp = ptable.s[0].queue[k];
+        for (int k=0; k<=ptable.s[activeSet].queueIndex; k++) {
+          pp = ptable.s[activeSet].queue[k];
 
-          ptable.s[1].queueIndex++;
-          ptable.s[1].queue[ptable.s[1].queueIndex] = pp;
+          ptable.s[!activeSet].queueIndex++;
+          ptable.s[!activeSet].queue[ptable.s[!activeSet].queueIndex] = pp;
     
         }
-        ptable.s[0].queueIndex = -1; //empty queue
-        activeSet = 1;
-      }
-      else{
-        struct proc *pp;
-
-        // replenish quanta
-        for (int j=0; j<=ptable.s[0].queueIndex; j++) {
-          pp = ptable.s[0].queue[j];
-          pp->ticks_left = RSDL_PROC_QUANTUM;
-        }
-
-        // transfer sleeping procs
-        for (int k=0; k<=ptable.s[1].queueIndex; k++) {
-          pp = ptable.s[1].queue[k];
-
-          ptable.s[0].queueIndex++;
-          ptable.s[0].queue[ptable.s[0].queueIndex] = pp;
-        }
+        ptable.s[activeSet].queueIndex = -1; //empty queue
         
-        ptable.s[1].queueIndex = -1; //empty queue
-        activeSet = 0;
+        // replenish quanta
+        for (int j=0; j<=ptable.s[!activeSet].queueIndex; j++) {
+          pp = ptable.s[!activeSet].queue[j];
+          pp->ticks_left = RSDL_PROC_QUANTUM;
       }
+
+      activeSet = !activeSet;
+      
     }
 
     release(&ptable.lock);
@@ -563,17 +528,9 @@ yield(void)
 
   // Enqueue yielded process to expired set
   if (myproc()->inQueue != 1){
-    if(activeSet == 0){
-      ptable.s[1].queueIndex++;
-      ptable.s[1].queue[ptable.s[1].queueIndex] = myproc();
+      ptable.s[!activeSet].queueIndex++;
+      ptable.s[!activeSet].queue[ptable.s[!activeSet].queueIndex] = myproc();
       myproc()->inQueue = 1;
-    }
-    else{
-      ptable.s[0].queueIndex++;
-      ptable.s[0].queue[ptable.s[0].queueIndex] = myproc();
-      myproc()->inQueue = 1;
-    }
-  
   }
 
   myproc()->state = RUNNABLE;
