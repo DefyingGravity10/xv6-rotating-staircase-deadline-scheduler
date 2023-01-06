@@ -5,7 +5,7 @@ int main() {
   schedlog(100000000);
 
   for (int i = 0; i < 5; i++) {
-    if (fork() == 0) {
+    if (priofork(0) == 0) {
       char *argv[] = {"loop", 0};
       exec("loop", argv);
     }

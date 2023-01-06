@@ -537,70 +537,32 @@ scheduler(void)
 
     // Perform a swap since no RUNNABLE processes can be found in the active set
     if (swap == 1) {
-      if (activeSet == 0) {
-        struct proc *pp;
+      struct proc *pp;
 
-        for (level = 0; level < RSDL_LEVELS; level++) {
+      for (level = 0; level < RSDL_LEVELS; level++) {
           
-          // Replenishes the quanta of each level found within both sets
-          ptable.s[activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
-          ptable.s[!activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
+        // Replenishes the quanta of each level found within both sets
+        ptable.s[activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
+        ptable.s[!activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
           
-          // No processes are found, so no need to do anything
-          if (level < RSDL_STARTING_LEVEL) {
-            continue;
-          }
-
-          // Loop through all the processes found in a level and place them in their default priority levels
-          // in the expired set
-          for (int k = 0; k <= ptable.s[activeSet].queueIndex[level]; k++) {
-            pp = ptable.s[activeSet].queue[level][k];
-            pp->inQueue = 1;
-            pp->ticks_left = RSDL_PROC_QUANTUM;
-            pp->currLevel = pp->prioLevel;
-            ptable.s[!activeSet].queueIndex[pp->prioLevel]++;
-            pp->level_ticks_left = &ptable.s[!activeSet].lv_tix[level];
-            int idx = ptable.s[!activeSet].queueIndex[pp->prioLevel];
-            ptable.s[!activeSet].queue[pp->prioLevel][idx] = pp;
-          }
-          ptable.s[activeSet].queueIndex[level] = -1;
+        // Loop through all the processes found in a level and place them in their default priority levels
+        // in the expired set
+        for (int k = 0; k <= ptable.s[activeSet].queueIndex[level]; k++) {
+          pp = ptable.s[activeSet].queue[level][k];
+          pp->inQueue = 1;
+          pp->ticks_left = RSDL_PROC_QUANTUM;
+          pp->currLevel = pp->prioLevel;
+          ptable.s[!activeSet].queueIndex[pp->prioLevel]++;
+          pp->level_ticks_left = &ptable.s[!activeSet].lv_tix[level];
+          int idx = ptable.s[!activeSet].queueIndex[pp->prioLevel];
+          ptable.s[!activeSet].queue[pp->prioLevel][idx] = pp;
         }
-        // Change value of the activeSet
-        activeSet = 1;
+        ptable.s[activeSet].queueIndex[level] = -1;
       }
-      else if (activeSet == 1) {
-        struct proc *pp;
-
-        for (level = 0; level < RSDL_LEVELS; level++) {
-
-          // Replenishes the quanta of each level found within both sets
-          ptable.s[activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
-          ptable.s[!activeSet].lv_tix[level] = RSDL_LEVEL_QUANTUM;
-          
-          // No processes are found, so no need to do anything
-          if (level < RSDL_STARTING_LEVEL) {
-            continue;
-          }
-
-          // Loop through all the processes found in a level and place them in their default priority levels
-          // in the expired set
-          for (int k = 0; k <= ptable.s[activeSet].queueIndex[level]; k++) {
-            pp = ptable.s[activeSet].queue[level][k];
-            pp->inQueue = 1;
-            pp->ticks_left = RSDL_PROC_QUANTUM;
-            pp->currLevel = pp->prioLevel;
-            ptable.s[!activeSet].queueIndex[pp->prioLevel]++;
-            pp->level_ticks_left = &ptable.s[!activeSet].lv_tix[level];
-            int idx = ptable.s[!activeSet].queueIndex[pp->prioLevel];
-            ptable.s[!activeSet].queue[pp->prioLevel][idx] = pp;
-          }
-          ptable.s[activeSet].queueIndex[level] = -1;
-        }
-
         // Change value of the activeSet
-        activeSet = 0;      
-      } 
+      activeSet = !activeSet;
     }
+  
     release(&ptable.lock);
   }
 }

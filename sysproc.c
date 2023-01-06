@@ -116,11 +116,13 @@ int sys_schedlog(void) {
 
 int sys_priofork(void) {
   int n;
-
+  
   if (argint(0, &n) < 0) {
     return -1;
   }
+  if (n < 0 || n >= RSDL_LEVELS) {
+    return -1;
+  }
 
-  //idk
   return priofork(n);
 }
