@@ -10,6 +10,10 @@
 // Global variable
 int activeSet = 0;
 
+struct proc *chosenProc;
+int chosenProcLevel;
+int chosenProcLvIndex;
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -23,7 +27,11 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
+// Newly created functions
 int priofork(int);
+void updateQueue(void);
+void enqueueProcess(struct proc *p);
 
 void
 pinit(void)
@@ -359,6 +367,7 @@ exit(void)
   curproc->cwd = 0;
 
   acquire(&ptable.lock);
+  updateQueue();
 
   wakeup1(curproc->parent);
 
@@ -506,14 +515,10 @@ scheduler(void)
           }
         }
         
-        // Update level queue. No need to alter the queue found on other levels
-        for (int j = i; j <= ptable.s[activeSet].queueIndex[level]; j++) {
-          ptable.s[activeSet].queue[level][j] = ptable.s[activeSet].queue[level][j+1];
-        }
-        ptable.s[activeSet].queueIndex[level]--;
-        p->inQueue = 0;
-        //cprintf("%d\n", ptable.s[activeSet].queueIndex[level]);
-        //cprintf("process done running\n");
+        // Take note of the currently running process (to be dequeued later)
+        chosenProc = p;
+        chosenProcLevel = level;
+        chosenProcLvIndex = i;
 
         swtch(&(c->scheduler), p->context);
         switchkvm();
@@ -631,6 +636,7 @@ void
 yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
+    updateQueue();
 
     if (myproc()->ticks_left > 0)
     {
@@ -717,7 +723,77 @@ sleep(void *chan, struct spinlock *lk)
     acquire(&ptable.lock);  //DOC: sleeplock1
     release(lk);
   }
+  updateQueue();
+  enqueueProcess(p);
+  
+  // Go to sleep.
+  p->chan = chan;
+  p->state = SLEEPING;
+  
+  sched();
 
+  // Tidy up.
+  p->chan = 0;
+
+  // Reacquire original lock.
+  if(lk != &ptable.lock){  //DOC: sleeplock2
+    release(&ptable.lock);
+    acquire(lk);
+  }
+}
+
+//PAGEBREAK!
+// Wake up all processes sleeping on chan.
+// The ptable lock must be held.
+static void
+wakeup1(void *chan)
+{
+  struct proc *p;
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if(p->state == SLEEPING && p->chan == chan) {
+      enqueueProcess(p);
+      p->state = RUNNABLE;
+    }
+}
+
+// Wake up all processes sleeping on chan.
+void
+wakeup(void *chan)
+{
+  acquire(&ptable.lock);
+  wakeup1(chan);
+  release(&ptable.lock);
+}
+
+// Kill the process with the given pid.
+// Process won't exit until it returns
+// to user space (see trap in trap.c).
+int
+kill(int pid)
+{
+  struct proc *p;
+
+  acquire(&ptable.lock);
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid){
+      p->killed = 1;
+      // Wake process from sleep if necessary.
+      if(p->state == SLEEPING) {
+        enqueueProcess(p);
+        p->state = RUNNABLE;
+      }
+        
+      release(&ptable.lock);
+      return 0;
+    }
+  }
+  release(&ptable.lock);
+  return -1;
+}
+
+void enqueueProcess(struct proc *p) {
   if (p->inQueue != 1) 
   {
     // Find next available level if level-quantum is less than 0
@@ -754,147 +830,12 @@ sleep(void *chan, struct spinlock *lk)
       p->inQueue = 1;
     }
   }
-  
-  // Go to sleep.
-  p->chan = chan;
-  p->state = SLEEPING;
-  
-  sched();
-
-  // Tidy up.
-  p->chan = 0;
-
-  // Reacquire original lock.
-  if(lk != &ptable.lock){  //DOC: sleeplock2
-    release(&ptable.lock);
-    acquire(lk);
-  }
-}
-
-//PAGEBREAK!
-// Wake up all processes sleeping on chan.
-// The ptable lock must be held.
-static void
-wakeup1(void *chan)
-{
-  struct proc *p;
-
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == SLEEPING && p->chan == chan) {
-      // Enqueue process
-      if (p->inQueue != 1) 
-      {
-        // Find next available level if level-quantum is less than 0
-        if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64 || ptable.s[activeSet].lv_tix[p->currLevel] <= 0) {
-          int isEnqueued = 0;
-          int nextLowest = p->currLevel + 1;
-          for (int i = nextLowest; i < RSDL_LEVELS; i++) {
-            if (ptable.s[activeSet].queueIndex[i] < NPROC-1 && ptable.s[activeSet].lv_tix[i] > 0) {
-              ptable.s[activeSet].queueIndex[i]++;
-              int a = ptable.s[activeSet].queueIndex[i];
-              ptable.s[activeSet].queue[i][a] = p;
-              p->inQueue = 1;
-              isEnqueued = 1;
-              p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
-              break;
-            }
-          }
-
-          // Place in expired set if no level is available
-          if (isEnqueued == 0) {
-            int b = p->prioLevel;
-            ptable.s[!activeSet].queueIndex[b]++;
-            ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
-            p->inQueue = 1;
-            p->level_ticks_left = &ptable.s[!activeSet].lv_tix[b];
-            p->ticks_left = RSDL_PROC_QUANTUM;
-          }
-        }
-        // Enqueue in same level (since it was just in the SLEEPING STATE)
-        else {
-          ptable.s[activeSet].queueIndex[p->currLevel]++; 
-          int a = ptable.s[activeSet].queueIndex[p->currLevel];
-          ptable.s[activeSet].queue[p->currLevel][a] = p;
-          p->inQueue = 1;
-        }
-      }
-      p->state = RUNNABLE;
-    }
-}
-
-// Wake up all processes sleeping on chan.
-void
-wakeup(void *chan)
-{
-  acquire(&ptable.lock);
-  wakeup1(chan);
-  release(&ptable.lock);
-}
-
-// Kill the process with the given pid.
-// Process won't exit until it returns
-// to user space (see trap in trap.c).
-int
-kill(int pid)
-{
-  struct proc *p;
-
-  acquire(&ptable.lock);
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->pid == pid){
-      p->killed = 1;
-      // Wake process from sleep if necessary.
-      if(p->state == SLEEPING) {
-        // Add process into queue
-        if (p->inQueue != 1) 
-        {
-          // Find next available level if level-quantum is less than 0
-          if (ptable.s[activeSet].queueIndex[p->currLevel] >= 64 || ptable.s[activeSet].lv_tix[p->currLevel] <= 0) {
-            int isEnqueued = 0;
-            int nextLowest = p->currLevel + 1;
-            for (int i = nextLowest; i < RSDL_LEVELS; i++) {
-              if (ptable.s[activeSet].queueIndex[i] < NPROC-1 && ptable.s[activeSet].lv_tix[i] > 0) {
-                ptable.s[activeSet].queueIndex[i]++;
-                int a = ptable.s[activeSet].queueIndex[i];
-                ptable.s[activeSet].queue[i][a] = p;
-                p->inQueue = 1;
-                p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
-                isEnqueued = 1;
-                break;
-              }
-            }
-
-            // Place in expired set if no level is available
-            if (isEnqueued == 0) {
-              int b = p->prioLevel;
-              ptable.s[!activeSet].queueIndex[b]++;
-              ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
-              p->inQueue = 1;
-              p->level_ticks_left = &ptable.s[!activeSet].lv_tix[b];
-              p->ticks_left = RSDL_PROC_QUANTUM;
-            }
-          }
-          // Enqueue in same level (since it was just in the SLEEPING STATE)          
-          else {
-            ptable.s[activeSet].queueIndex[p->currLevel]++; 
-            int a = ptable.s[activeSet].queueIndex[p->currLevel];
-            ptable.s[activeSet].queue[p->currLevel][a] = p;
-            p->inQueue = 1;
-          }
-        }
-        p->state = RUNNABLE;
-      }
-        
-      release(&ptable.lock);
-      return 0;
-    }
-  }
-  release(&ptable.lock);
-  return -1;
 }
 
 void enqueueNextLevel() {
   acquire(&ptable.lock);
+  updateQueue();
+
   int isEnqueued = 0;
   int dequeuedLevel = myproc()->currLevel;
   int nextLowest = myproc()->currLevel+1;
@@ -951,6 +892,13 @@ void enqueueNextLevel() {
   release(&ptable.lock);
 }
 
+void updateQueue() {
+  for (int j = chosenProcLvIndex; j <= ptable.s[activeSet].queueIndex[chosenProcLevel]; j++)  {
+    ptable.s[activeSet].queue[chosenProcLevel][j] = ptable.s[activeSet].queue[chosenProcLevel][j+1];
+  }
+  ptable.s[activeSet].queueIndex[chosenProcLevel]--;
+  chosenProc->inQueue = 0;
+}
 //PAGEBREAK: 36
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.

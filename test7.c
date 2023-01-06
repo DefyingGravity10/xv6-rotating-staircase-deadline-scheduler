@@ -4,14 +4,14 @@
 int main() {
   schedlog(100000000);
 
-  for (int i = 0; i < 5; i++) {
-    if (priofork(1) == 0) {
-      char *argv[] = {"short", 0};
-      exec("short", argv);
+  for (int i = 0; i < 3; i++) {
+    if (priofork(i) == 0) {
+      char *argv[] = {"loop", 0};
+      exec("loop", argv);
     }
   }
 
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 3; i++) {
     wait();
   }
 
