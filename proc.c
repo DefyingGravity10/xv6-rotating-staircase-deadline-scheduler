@@ -462,7 +462,7 @@ scheduler(void)
 
     // Assume there are no runnable processes (i.e. noRunnableProcInLevel = 1)
     int noRunnableProcInLevel;
-    int swap = 1; // Initially assume that no swap will occur
+    int swap = 1; // Initially assume that a swap will occur
 
     // Loop through all processes within the sets, first starting from the active set.
     // Start from level 0 to N then proceed to expired set
@@ -615,7 +615,7 @@ yield(void)
           ptable.s[activeSet].queueIndex[i]++;
           int a = ptable.s[activeSet].queueIndex[i];
           ptable.s[activeSet].queue[i][a] = myproc();
-          myproc()->currLevel++;
+          myproc()->currLevel = i;
           myproc()->inQueue = 1;
           myproc()->ticks_left = RSDL_PROC_QUANTUM;          
           myproc()->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
@@ -767,7 +767,9 @@ void enqueueProcess(struct proc *p) {
           ptable.s[activeSet].queueIndex[i]++;
           int a = ptable.s[activeSet].queueIndex[i];
           ptable.s[activeSet].queue[i][a] = p;
+          p->currLevel = i;
           p->inQueue = 1;
+          p->ticks_left = RSDL_PROC_QUANTUM; 
           p->level_ticks_left = &ptable.s[activeSet].lv_tix[i];
           isEnqueued = 1;
           break;
@@ -779,6 +781,7 @@ void enqueueProcess(struct proc *p) {
         int b = p->prioLevel;
         ptable.s[!activeSet].queueIndex[b]++;
         ptable.s[!activeSet].queue[b][ptable.s[!activeSet].queueIndex[b]] = p;
+        p->currLevel = b;
         p->inQueue = 1;
         p->level_ticks_left = &ptable.s[!activeSet].lv_tix[b];
         p->ticks_left = RSDL_PROC_QUANTUM;
