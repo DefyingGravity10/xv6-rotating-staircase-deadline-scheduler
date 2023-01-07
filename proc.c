@@ -7,6 +7,10 @@
 #include "proc.h"
 #include "spinlock.h"
 
+// Global Variables
+struct proc *chosenProc;
+int chosenProcIndex;
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -20,6 +24,9 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
+// Newly created functions
+void updateQueue(void);
 
 void
 pinit(void)
@@ -260,6 +267,7 @@ exit(void)
   curproc->cwd = 0;
 
   acquire(&ptable.lock);
+  updateQueue();
 
   wakeup1(curproc->parent);
 
@@ -385,12 +393,9 @@ scheduler(void)
         }
       }
 
-      //Update queue
-      for (int j=i; j<ptable.s1.queueIndex; j++) {
-        ptable.s1.queue[j] = ptable.s1.queue[j+1];
-      }
-      ptable.s1.queueIndex--;
-      p->inQueue = 0;
+      // Take note of the currently running process (to be dequeued later)
+      chosenProc = p;
+      chosenProcIndex = i;
 
       swtch(&(c->scheduler), p->context);
       switchkvm();     
@@ -457,6 +462,7 @@ void
 yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
+  updateQueue();
   
   // Enqueue yielded process
   if (myproc()->inQueue != 1) {
@@ -516,6 +522,7 @@ sleep(void *chan, struct spinlock *lk)
     acquire(&ptable.lock);  //DOC: sleeplock1
     release(lk);
   }
+  updateQueue();
 
   if (p->inQueue != 1) {
     ptable.s1.queueIndex++;
@@ -602,6 +609,15 @@ kill(int pid)
   }
   release(&ptable.lock);
   return -1;
+}
+
+void updateQueue() {
+  //Update active queue
+  for (int j=chosenProcIndex; j<ptable.s1.queueIndex; j++) {
+    ptable.s1.queue[j] = ptable.s1.queue[j+1];
+  }
+  ptable.s1.queueIndex--;
+  chosenProc->inQueue = 0;
 }
 
 //PAGEBREAK: 36
