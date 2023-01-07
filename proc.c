@@ -7,7 +7,11 @@
 #include "proc.h"
 #include "spinlock.h"
 
+// Global Variables
 int activeSet = 0;
+
+struct proc *chosenProc;
+int chosenProcIndex;
 
 struct {
   struct spinlock lock;
@@ -22,6 +26,10 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
+// Newly created functions
+void updateQueue(void);
+void enqueueProcess(struct proc *p);
 
 void
 pinit(void)
@@ -263,6 +271,7 @@ exit(void)
   curproc->cwd = 0;
 
   acquire(&ptable.lock);
+  updateQueue();
 
   wakeup1(curproc->parent);
   /*
@@ -390,16 +399,7 @@ scheduler(void)
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
-      //p->ticks_left = RSDL_PROC_QUANTUM;
-
-      //For TESTING ONLY. Exclude when not needed
-      // Run test in xv6 to see the queue
-      /*cprintf("Chosen proc: %d\n", p->pid);
-      cprintf("Queue last index: %d\n", ptable.s1.queueIndex);
-      for (int k=0; k<=ptable.s1.queueIndex; k++) {
-        cprintf("[%d]%s(%d) ", k, ptable.s1.queue[k]->name, ptable.s1.queue[k]->state);
-      }
-      cprintf("end\n\n"); */
+      
       if (schedlog_active) {
         if (ticks > schedlog_lasttick) {
           schedlog_active = 0;
@@ -425,12 +425,9 @@ scheduler(void)
         }
       }
       
-      //Update active queue
-      for (int j=i; j<ptable.s[activeSet].queueIndex; j++) {
-        ptable.s[activeSet].queue[j] = ptable.s[activeSet].queue[j+1];
-      }
-      ptable.s[activeSet].queueIndex--;
-      p->inQueue = 0;
+      // Take note of the currently running process (to be dequeued later)
+      chosenProc = p;
+      chosenProcIndex = i;
       
       
       swtch(&(c->scheduler), p->context);
@@ -467,29 +464,6 @@ scheduler(void)
     }
 
     release(&ptable.lock);
-    
-
-    /*acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
-
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
-    }
-    release(&ptable.lock); */
-
   }
 }
 
@@ -524,6 +498,7 @@ void
 yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
+  updateQueue();
   
 
   // Enqueue yielded process to expired set
@@ -582,13 +557,8 @@ sleep(void *chan, struct spinlock *lk)
     acquire(&ptable.lock);  //DOC: sleeplock1
     release(lk);
   }
-
-  if (p->inQueue != 1) {
-    ptable.s[activeSet].queueIndex++;
-    ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p;
-    p->inQueue = 1;
-    //p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
-  }
+  updateQueue();
+  enqueueProcess(p);
   
   // Go to sleep.
   p->chan = chan;
@@ -616,14 +586,7 @@ wakeup1(void *chan)
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->state == SLEEPING && p->chan == chan) {
-      // Enqueue process
-      if (p->inQueue != 1) {
-        ptable.s[activeSet].queueIndex++;
-        ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p;
-        p->inQueue = 1;
-        p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued
-      }
-
+      enqueueProcess(p);
       p->state = RUNNABLE;
     }
       
@@ -652,13 +615,7 @@ kill(int pid)
       p->killed = 1;
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING) {
-        // Add process into queue
-        if (p->inQueue != 1) {
-          ptable.s[activeSet].queueIndex++;
-          ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p; 
-          p->inQueue = 1;   
-          p->ticks_left = RSDL_PROC_QUANTUM; //quantum replenished when enqueued      
-        }
+        enqueueProcess(p);
         p->state = RUNNABLE;
       }
         
@@ -668,6 +625,23 @@ kill(int pid)
   }
   release(&ptable.lock);
   return -1;
+}
+
+void enqueueProcess(struct proc *p) {
+  if (p->inQueue != 1) {
+    ptable.s[activeSet].queueIndex++;
+    ptable.s[activeSet].queue[ptable.s[activeSet].queueIndex] = p; 
+    p->inQueue = 1;        
+  }
+}
+
+void updateQueue() {
+  //Update active queue
+  for (int j=chosenProcIndex; j<ptable.s[activeSet].queueIndex; j++) {
+    ptable.s[activeSet].queue[j] = ptable.s[activeSet].queue[j+1];
+  }
+  ptable.s[activeSet].queueIndex--;
+  chosenProc->inQueue = 0;
 }
 
 //PAGEBREAK: 36
